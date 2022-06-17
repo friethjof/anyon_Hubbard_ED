@@ -171,14 +171,14 @@ class Propagation():
     n> : eigenvectors
     """
 
-    def __init__(self, hamilt, psi0, tmax, tstep):
+    def __init__(self, path_run, hamilt, psi0, tmax, tstep):
         # hamilt : object of hamilt class
         # psi0 : normalized array
         # tmax, tstep: floats, time specifications
 
-
+        self.path_run = path_run
         # check whether psi_0 is normalized
-        assert np.vdot(psi_0, psi_0) == 1
+        assert np.vdot(psi0, psi0) == 1
         self.psi0 = psi0
         self.hamilt = hamilt
         self.time = np.arange(0, tmax, tstep)
@@ -187,7 +187,7 @@ class Propagation():
         for t in self.time:
             psi_tstep = np.zeros(hamilt.evec[0].shape, dtype=complex)
             for eval_n, evec_n in zip(hamilt.eval, hamilt.evec):
-                psi_tstep += np.exp(-1j*eval_n*t)*evec_n*np.vdot(evec_n, psi_0)
+                psi_tstep += np.exp(-1j*eval_n*t)*evec_n*np.vdot(evec_n, psi0)
             psi_t.append(psi_tstep)
             assert np.abs(np.vdot(psi_tstep, psi_tstep) - 1+0j) < 1e-8
         self.psi_t = np.array(psi_t)
@@ -242,7 +242,7 @@ class Propagation():
     #---------------------------------------------------------------------------
     def numOp(self, site_i):
         "psi_t = <psi(t)| b_i^t b^i |psi(t)>"
-        path_nop_dict = Path('dict_numOp.npz')
+        path_nop_dict = self.path_run/'dict_numOp.npz'
         basis_list = self.hamilt.basis.basis_list
         L = self.hamilt.basis.L
         if path_nop_dict.is_file():
@@ -282,16 +282,17 @@ class Propagation():
         cbar.ax.set_ylabel(r"$\langle \Psi|b_i^{\dagger}b_i| \Psi\rangle$",
             fontsize=14)
         # plt.show()
-        plt.savefig(fig_name)
+        path_fig = (self.path_run/fig_name).absolute()
+        plt.savefig(path_fig)
         plt.close()
-        subprocess.call(['convert', fig_name, '-trim', fig_name])
+        subprocess.call(['convert', path_fig, '-trim', path_fig])
 
 
     def numOp_lplot(self, fig_name='num_op.png'):
         plt.rc('text', usetex=True)
         fig, ax = plt.subplots()
         for site_i in range(L):
-            plt.plot(self.time, class_prop.numOp(site_i),
+            plt.plot(self.time, self.numOp(site_i),
                 label=f'site {site_i+1}')
         plt.legend()
         ax.tick_params(labelsize=12)
@@ -299,9 +300,10 @@ class Propagation():
         ax.set_ylabel(r"$\langle \Psi|b_i^{\dagger}b_i| \Psi\rangle$",
             fontsize=14)
         # plt.show()
-        plt.savefig(fig_name)
+        path_fig = (self.path_run/fig_name).absolute()
+        plt.savefig(path_fig)
         plt.close()
-        subprocess.call(['convert', fig_name, '-trim', fig_name])
+        subprocess.call(['convert', path_fig, '-trim', path_fig])
 
 
     #---------------------------------------------------------------------------
@@ -346,12 +348,7 @@ class Propagation():
                         # basisA_l = <3, 0| ; basisB_l = <0, 1|
                         basisB_l = np.array([basis_l[x] for x in subsysB_ind])
                         basisA_l = np.array([basis_l[x] for x in subsysA_ind])
-                        # basisB_l, basisB_k match with bB_i,i exactly
-                        # len(basis_A)-times
-                        count = 0
-                        if count < len(basis_A) and (bB_i==basisB_k).all()\
-                            and (bB_i==basisB_l).all():
-                            count += 1
+                        if (bB_i==basisB_k).all() and (bB_i==basisB_l).all():
                             # assign coefficient to the right index of rhoA
                             bool_break = False
                             for i, bA_i in enumerate(basis_A):
@@ -396,7 +393,7 @@ class Propagation():
 
 
     def bipartite_ent(self):
-        path_sentA_dict = Path('dict_SentA.npz')
+        path_sentA_dict = Path(self.path_run/'dict_SentA.npz')
         if path_sentA_dict.is_file():
             SentA_dict = dict(np.load(path_sentA_dict))
             return SentA_dict['SentA']
@@ -412,14 +409,93 @@ class Propagation():
     def plot_bipartite_ent(self, fig_name='S_ent_A.png'):
         plt.rc('text', usetex=True)
         fig, ax = plt.subplots()
-        plt.plot(self.time, class_prop.bipartite_ent())
+        plt.plot(self.time, self.bipartite_ent())
         ax.tick_params(labelsize=12)
         ax.set_xlabel('time', fontsize=14)
         ax.set_ylabel(r"$S_A(t)$", fontsize=14)
         # plt.show()
-        plt.savefig(fig_name)
+        path_fig = (self.path_run/fig_name).absolute()
+        plt.savefig(path_fig)
         plt.close()
-        subprocess.call(['convert', fig_name, '-trim', fig_name])
+        subprocess.call(['convert', path_fig, '-trim', path_fig])
+
+
+#===============================================================================
+#===============================================================================
+
+
+def make_run(N, L, J, U, theta, psi_ini, Tprop, dtprop):
+    #===========================================================================
+    # create basis
+    #===========================================================================
+    class_basis = Basis(L, N)
+    # define initial state: |N/2, 0, ..., 0, N/2>
+
+
+    #===========================================================================
+    # find initial psi file
+    #===========================================================================
+    if psi_ini == 'psi0_n00n':
+        assert L%2==0  # even number of lattice sites
+        nstate_ini = [0]*L
+        nstate_ini[0] = N/2
+        nstate_ini[-1] = N/2
+        psi0_ind = [i for i, el in enumerate(class_basis.basis_list)
+            if el == nstate_ini]
+        assert len(psi0_ind) == 1
+
+        psi0 = np.zeros((class_basis.length), dtype=complex)
+        psi0[psi0_ind[0]] = 1
+        psi0_string = str(class_basis.basis_list[psi0_ind[0]])
+
+
+    #===========================================================================
+    # initialize run
+    #===========================================================================
+    theta_ = f'{theta/math.pi:.2f}'.replace('.', '_')
+    path_run = Path(f'../{psi_ini}/L{L}_N{N}/tpi_{theta_}')
+    path_run.mkdir(parents=True, exist_ok=True)
+    # write log_file
+    with open(path_run/'log_file.txt', 'w') as lf:
+        lf.write('')
+        lf.write(f'N = {N}\t\t\t\t# number of particles\n')
+        lf.write(f'L = {L}\t\t\t\t# number of sites\n')
+        lf.write(f'J = {J}\t\t\t\t# hopping term\n')
+        lf.write(f'U = {U}\t\t\t\t# on-site interaction\n')
+        lf.write(f'theta = {theta}\t\t\t# theta/pi\n')
+        lf.write(f'theta_pi = {theta/math.pi}\t\t# complex phase\n\n')
+        lf.write(f"psi_ini = '{psi_ini}'\n")
+        lf.write(f'# psi_ini corresponds to {psi0_string}\n\n')
+        lf.write(f'Tprop = {Tprop}\t\t# final propagation time\n')
+        lf.write(f'dtprop = {dtprop}\t\t# propagation time steps\n')
+
+
+    #===========================================================================
+    # create and diagonalize full many-body Hamiltonian
+    #===========================================================================
+    clock_start = time.time()
+    class_hamilt = AnyonHubbardHamiltonian(J, U, theta, class_basis)
+
+
+    #===========================================================================
+    # propagation
+    #===========================================================================
+    class_prop = Propagation(path_run, class_hamilt, psi0, Tprop, dtprop)
+
+    # measure ellapsed time
+    clock_end = time.time()
+    time_ellapsed = clock_end-clock_start
+    np.savez(path_run/'calculation_time.npz', time_ellapsed=time_ellapsed)
+
+
+    #===========================================================================
+    # plot observables
+    #===========================================================================
+    class_prop.numOp_cplot()
+    class_prop.numOp_lplot()
+    class_prop.plot_bipartite_ent()
+
+
 
 
 
@@ -427,48 +503,17 @@ class Propagation():
 # parameters
 #===============================================================================
 N = 4       # number of particles
-L = 8       # number of sites
+L = 4       # number of sites
 J = 1.0     # hopping term
 U = 1.0     # on-site interaction
 # theta = math.pi/2.0   # complex phase
-theta = 0   # complex phase
-clock_start = time.time()
+theta = 0
 
+psi_ini = 'psi0_n00n'
 
-#===============================================================================
-# create and diagonalize full many-body Hamiltonian
-#===============================================================================
-class_basis = Basis(L, N)
+Tprop = 10.1
+dtprop = 0.1
 
-class_hamilt = AnyonHubbardHamiltonian(J, U, theta, class_basis)
-
-
-
-#===============================================================================
-# propagation
-#===============================================================================
-# define initial state: |N/2, 0, ..., 0, N/2>
-assert L%2==0  # even number of lattice sites
-nstate_ini = [0]*L
-nstate_ini[0] = N/2
-nstate_ini[-1] = N/2
-psi0_ind = [i for i, el in enumerate(class_basis.basis_list) if el == nstate_ini]
-assert len(psi0_ind) == 1
-
-psi_0 = np.zeros((class_basis.length), dtype=complex)
-psi_0[psi0_ind[0]] = 1
-
-# propagate
-class_prop = Propagation(class_hamilt, psi_0, 10.1, 0.1)
-
-# measure ellapsed time
-clock_end = time.time()
-np.savez('calculation_time.npz', time_ellapsed=clock_end-clock_start)
-
-
-#===============================================================================
-# plot observables
-#===============================================================================
-class_prop.numOp_cplot()
-class_prop.numOp_lplot()
-class_prop.plot_bipartite_ent()
+# implement loops if desired, maybe in parallel
+for th in np.arange(0, 2.1, 0.1):
+    make_run(N, L, J, U, th*math.pi, psi_ini, Tprop, dtprop)
