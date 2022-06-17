@@ -472,3 +472,4 @@ np.savez('calculation_time.npz', time_ellapsed=clock_end-clock_start)
 class_prop.numOp_cplot()
 class_prop.numOp_lplot()
 class_prop.plot_bipartite_ent()
+
