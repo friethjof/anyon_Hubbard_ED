@@ -1,5 +1,6 @@
 import os
 import itertools
+import shutil
 import math
 import time
 from pathlib import Path
@@ -8,7 +9,6 @@ import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import linalg
-import scipy.linalg
 
 
 # author: Friethjof Theel
@@ -193,6 +193,14 @@ class Propagation():
         self.psi_t = np.array(psi_t)
 
 
+        # on the cluster: 'latex' in matplotlib and 'convert' not available
+        if shutil.which('qstat') is None:
+            plt.rc('text', usetex=True)
+            self.bool_convert_trim = True
+        else:
+            plt.rc('text', usetex=False)
+            self.bool_convert_trim = False
+
     #---------------------------------------------------------------------------
     # def _oneBodyDensity(self, subsys_ind):
     #     """
@@ -266,12 +274,12 @@ class Propagation():
 
 
     def numOp_cplot(self, fig_name='num_op_cplot.png'):
-        plt.rc('text', usetex=True)
         fig, ax = plt.subplots()
         L = self.hamilt.basis.L
         x, y = np.meshgrid(range(1, L+1), self.time)
         numOp_mat = np.array([self.numOp(i) for i in range(L)])
-        im = ax.pcolormesh(x, y, np.transpose(numOp_mat), cmap='turbo')
+        im = ax.pcolormesh(x, y, np.transpose(numOp_mat), cmap='turbo',
+            shading='nearest')
         [ax.axvline(i+0.5, c='black', lw=2) for i in range(1, L)]
         ax.tick_params(labelsize=12)
         ax.set_xticks(list(range(1, L+1)))
@@ -282,14 +290,14 @@ class Propagation():
         cbar.ax.set_ylabel(r"$\langle \Psi|b_i^{\dagger}b_i| \Psi\rangle$",
             fontsize=14)
         # plt.show()
-        path_fig = (self.path_run/fig_name).absolute()
+        path_fig = (self.path_run/fig_name).resolve()
         plt.savefig(path_fig)
         plt.close()
-        subprocess.call(['convert', path_fig, '-trim', path_fig])
+        if self.bool_convert_trim:
+            subprocess.call(['convert', path_fig, '-trim', path_fig])
 
 
     def numOp_lplot(self, fig_name='num_op.png'):
-        plt.rc('text', usetex=True)
         fig, ax = plt.subplots()
         for site_i in range(L):
             plt.plot(self.time, self.numOp(site_i),
@@ -300,10 +308,11 @@ class Propagation():
         ax.set_ylabel(r"$\langle \Psi|b_i^{\dagger}b_i| \Psi\rangle$",
             fontsize=14)
         # plt.show()
-        path_fig = (self.path_run/fig_name).absolute()
+        path_fig = (self.path_run/fig_name).resolve()
         plt.savefig(path_fig)
         plt.close()
-        subprocess.call(['convert', path_fig, '-trim', path_fig])
+        if self.bool_convert_trim:
+            subprocess.call(['convert', path_fig, '-trim', path_fig])
 
 
     #---------------------------------------------------------------------------
@@ -386,7 +395,7 @@ class Propagation():
             eval, _ = linalg.eig(rhoA)
             # verify that all eigenvalues have no imaginary contribution
             assert all([el.imag < 1e-8 for el in eval])
-            # entropy = -np.trace(np.matmul(rhoA, scipy.linalg.logm(rhoA)))
+            # entropy = -np.trace(np.matmul(rhoA, linalg.logm(rhoA)))
             entropy = sum([-el*np.log(el) for el in eval.real if 1e-8 < abs(el)])
             s_ent.append(entropy)
         return np.array(s_ent)
@@ -407,17 +416,17 @@ class Propagation():
 
 
     def plot_bipartite_ent(self, fig_name='S_ent_A.png'):
-        plt.rc('text', usetex=True)
         fig, ax = plt.subplots()
         plt.plot(self.time, self.bipartite_ent())
         ax.tick_params(labelsize=12)
         ax.set_xlabel('time', fontsize=14)
         ax.set_ylabel(r"$S_A(t)$", fontsize=14)
         # plt.show()
-        path_fig = (self.path_run/fig_name).absolute()
+        path_fig = (self.path_run/fig_name).resolve()
         plt.savefig(path_fig)
         plt.close()
-        subprocess.call(['convert', path_fig, '-trim', path_fig])
+        if self.bool_convert_trim:
+            subprocess.call(['convert', path_fig, '-trim', path_fig])
 
 
 #===============================================================================
