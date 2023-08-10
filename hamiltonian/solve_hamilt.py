@@ -12,6 +12,7 @@ import scipy
 
 from hamiltonian.basis import Basis
 from helper import operators
+from helper import other_tools
 
 
 # author: Friethjof Theel
@@ -122,6 +123,60 @@ class AnyonHubbardHamiltonian():
         return self.evals
 
 
+    def energy_degeneracy(self):
+        """Determine the degeneracies of the energies.
+
+        Returns
+        dict : degeneracies
+        """
+
+        return other_tools.find_degeneracies(self.evals)
+
+
+
+    def eigenstate_nOp(self, state):
+        """Get a state in nstate-representation and apply number operator
+        \rangle \phi | \hat{n}_i | \phi \rangle
+
+        Returns
+        arr : eigenvector on lattive site
+        """
+
+        nop = []
+        for site_i in range(self.L):
+            nop_i = 0
+            for psi_coeff, b_m in zip(state, self.basis.basis_list):
+                nop_i += np.abs(psi_coeff)**2*b_m[site_i]
+            nop.append(nop_i)
+        nop = np.array(nop)
+        assert np.max(np.abs(nop.imag)) < 1e-8
+        nop = nop.real
+
+        return nop
+
+
+    def get_eigenstate_nOp_E0(self):
+        """Get eigenstates which are degenerated with an eigenenergy E=0
+        \rangle \phi | \hat{n}_i | \phi \rangle
+
+        Returns
+        arr : eigenvectors
+        """
+
+        dict_degen = other_tools.find_degeneracies(self.evals)
+        for k, v in dict_degen.items():
+            if abs(eval(k)) < 1e-10:
+                ind_list = v
+                break
+
+        evevs_E0 = [np.abs(self.evecs[i])**2 for i in ind_list]
+
+        evecs_nOp_E0 = [self.eigenstate_nOp(evec) for evec in evevs_E0]
+
+        return np.array(evecs_nOp_E0)
+
+
+
     #===========================================================================
     def numOp(self, psi, site_i):
         "psi_t = <psi(t)| b_i^t b^i |psi(t)>"
@@ -154,51 +209,6 @@ class AnyonHubbardHamiltonian():
     #
 
     #===========================================================================
-    def get_bibj_correlator(self, psi, i, j):
-        r"""\langle b_i^\dagger b_j \rangle
-            = <psi | b_i^\dagger b_j | psi >
-            = (<4,0,0,0|c_1 + <3,1,0,0|c_2 + ... ) | b_i^\dagger b_j | psi >
-            """
-        bibj_op = 0
-        for ind_1, basis1 in enumerate(self.basis.basis_list):
-            for ind_2, basis2 in enumerate(self.basis.basis_list):
-
-                # apply bi^dagger b_j
-                coeff_bibj = operators.bi_dagger_bj(basis1, basis2, i, j,
-                                                    self.N)
-
-                if coeff_bibj == 0:
-                    continue
-                else:
-                    bibj_op += coeff_bibj*np.conjugate(psi[ind_1])*psi[ind_2]
-
-        return bibj_op
-
-
-    def get_momentum(self, psi, k_mom, L):
-        momentum = 0
-        for m in range(1, L+1):
-            for n in range(1, L+1):
-                corr_mn = self.get_bibj_correlator(psi, m-1, n-1)
-                momentum += np.exp(1j*k_mom*(m - n))*corr_mn
-        momentum = np.array(momentum)/L
-
-        if 1e-8 < np.max(momentum.imag):
-            print(self.path_run, k_mom)
-            print('momentum has an imaginary part > 1e-8! --raise')
-            raise
-        else:
-            momentum = momentum.real
-
-        return momentum
-
-
-    def get_momentum_distribution(self, psi):
-        L = self.L
-        k_range = np.linspace(-np.pi*1, np.pi*1, 100)
-        mom_mat = np.array([self.get_momentum(psi, k, L).real for k in k_range])
-        return k_range, mom_mat
-
 
     # def plot_gs_momOp(self):
     #     r"""Fourier transform of the correlation function
@@ -211,27 +221,6 @@ class AnyonHubbardHamiltonian():
     #     plt.plot(k_range, mom_mat)
     #     plt.show()
     #     exit()
-
-
-    # #===========================================================================
-    # def get_ninj_correlator(self, psi, i, j):
-    #     r"""\langle b_i^\dagger b_j \rangle
-    #         = <psi | b_i^\dagger b_j | psi >
-    #         = (<4,0,0,0|c_1 + <3,1,0,0|c_2 + ... ) | b_i^\dagger b_j | psi >
-    #         """
-    #     ninj_op = 0
-    #     for ind_1, basis1 in enumerate(self.basis.basis_list):
-    #         for ind_2, basis2 in enumerate(self.basis.basis_list):
-    #
-    #             # apply bi^dagger b_j
-    #             coeff_ninj = ni_nj(basis1, basis2, i, j, self.N)
-    #
-    #             if coeff_ninj == 0:
-    #                 continue
-    #             else:
-    #                 ninj_op += coeff_ninj*np.conjugate(psi[ind_1])*psi[ind_2]
-    #
-    #     return ninj_op
 
 
     #===========================================================================
@@ -268,7 +257,57 @@ class AnyonHubbardHamiltonian():
         return K_mat, evals, evecs
 
 
-    def K_mat_polar_coord(self, nstate_str=None):
+    def get_K_dagger_mat(self):
+        """ symmetry operator
+            PRL 118, 120401 (2017)
+            https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.118.120401
+            Eq. (12)
+        """
+
+        # path_npz = self.path_basis/'K_dagger_operator.npz'
+
+        # if path_npz.is_file():
+        #     K_dict = dict(np.load(path_npz))
+        #     return K_dict['K_mat'], K_dict['evals'], K_dict['evecs']
+
+
+        K_mat = np.zeros((self.basis.length, self.basis.length), dtype=complex)
+
+        for i, basis1 in enumerate(self.basis.basis_list):
+            for j, basis2 in enumerate(self.basis.basis_list):
+                K_mat[i, j] = operators.K_dagger_operator(self.L, self.theta,
+                                                          basis1, basis2)
+
+        eval, evec = scipy.linalg.eig(K_mat)
+        idx = eval.argsort()
+        evals = eval[idx]
+        evecs = (evec[:, idx]).T
+
+        # np.savez(path_npz, K_mat=K_mat, evals=evals, evecs=evecs)
+
+        return K_mat, evals, evecs
+
+
+    def get_K_K_dagger_mat(self):
+        '\mathcal{K} + \mathcal{K}^\dagger'
+
+        K_mat, evals, evecs = self.get_K_mat()
+
+        K_mat_dagger = np.conjugate(K_mat).T
+
+        K_sum = K_mat + K_mat_dagger
+
+        eval, evec = scipy.linalg.eig(K_sum)
+        idx = eval.argsort()
+        evals = eval[idx]
+        evecs = (evec[:, idx]).T
+
+        assert np.max(np.abs(evals.imag)) < 1e-8
+
+        return K_sum, evals, evecs
+
+
+    def K_mat_polar_coord(self):
         """Get entries of K-operator. Count the non-zero values and group then
         according to their degeneracy"""
 
@@ -283,21 +322,13 @@ class AnyonHubbardHamiltonian():
         counts = counts[idx]
         nan_ind = np.where(cmplx_angle_set == np.nan)
 
-
-        if nstate_str is not None:
-            nstate = [eval(el) for el in nstate_str]
-            nstate_ind = self.basis.basis_list.index(nstate)
-            print(self.basis.basis_list[nstate_ind])
-            exit()
-        raise
-
         if np.isnan(cmplx_angle_set[-1]):
             return cmplx_angle_set[:-1], counts[:-1]
         else:
             return cmplx_angle_set, counts
 
 
-    def K_eigvals_polar_coord(self):
+    def K_eigvals_polar_coord(self, nstate_str=None):
         """The eigenvalues of the K-operator should have absolute value of 1,
         return the argument of the complex number"""
 
@@ -311,6 +342,14 @@ class AnyonHubbardHamiltonian():
         cmplx_angle_set = cmplx_angle_set[idx]
         counts = counts[idx]
 
+
+        if nstate_str is not None:
+            nstate = [eval(el) for el in nstate_str]
+            nstate_ind = self.basis.basis_list.index(nstate)
+            print(self.basis.basis_list[nstate_ind])
+            exit()
+            raise
+
         return cmplx_angle_set, counts
 
         # print(sum([-1/165*np.log(1/165) for el in range(165)]))
@@ -323,7 +362,48 @@ class AnyonHubbardHamiltonian():
 
 
 
-    # def K_op_black_diag(self):
-    #     """Make block diagonalization of K-Operator"""
-    #
-    #     K_mat, evals, evecs = self.get_K_mat()
+    def H_in_K_basis(self):
+        """Make block diagonalization of K-Operator"""
+
+        K_mat, evals, evecs = self.get_K_mat()
+
+        hamilt_Kbasis = np.zeros((self.hamilt.shape), dtype=complex)
+        for i, evec_i in enumerate(evecs):
+            for j, evec_j in enumerate(evecs):
+                # eigenvectors of K have still T-operator
+                hamilt_Kbasis[i, j] = np.vdot(evec_i, np.conjugate(self.hamilt.dot(evec_j)))
+
+
+        print(hamilt_Kbasis)
+        x, y = np.meshgrid(range(self.basis.length), range(self.basis.length))
+        im = plt.pcolormesh(x, y, np.abs(hamilt_Kbasis))
+        plt.colorbar(im)
+        plt.show()
+        exit()
+
+
+    def get_pair_mat(self):
+        """Calculate pair-operator in number state basis
+        \nu_p = \sum_j \hat{n}_j (\hat{n}_j - 1)/2
+        """
+
+        pair_mat = np.zeros((self.basis.length, self.basis.length))
+
+        for i, basis1 in enumerate(self.basis.basis_list):
+            for j, basis2 in enumerate(self.basis.basis_list):
+                pair_mat[i, j] = operators.pair_operator(self.L, basis1, basis2)
+
+        eval, evec = scipy.linalg.eig(pair_mat)
+        idx = eval.argsort()
+        evals = eval[idx]
+        evecs = (evec[:, idx]).T
+
+        # print(pair_mat)
+        # x, y = np.meshgrid(range(self.basis.length), range(self.basis.length))
+        # im = plt.pcolormesh(x, y, pair_mat)
+        # plt.colorbar(im)
+        # plt.show()
+        # exit()
+
+
+        return pair_mat, evals, evecs

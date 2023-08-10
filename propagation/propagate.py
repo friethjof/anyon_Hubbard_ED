@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from hamiltonian.solve_hamilt import AnyonHubbardHamiltonian
-
+from helper import operators
 from propagation import initialize_prop
 
 
@@ -48,17 +48,19 @@ class Propagation(AnyonHubbardHamiltonian):
         self.time = np.arange(0, Tprop+dtprop, dtprop)
         self.Tprop = Tprop
         # get initial state
-        self.psi0, nstate0_str = initialize_prop.get_psi0(self.basis.basis_list,
-                                                          psi0_str)
+        self.psi0, nstate0_str = initialize_prop.get_psi0(
+            psi0_str, self.basis.basis_list, self.evecs)
 
+        # K_mat, K_evals, K_evecs = self.get_K_mat()
+        # self.psi0 = K_evecs[-1]
         #-----------------------------------------------------------------------
         path_psi_npz = self.path_prop/f'psi_Tf_{Tprop}.npz'
+        # if False:
         if (path_psi_npz.is_file() and
             np.load(path_psi_npz)['Tprop'] == Tprop and
             np.load(path_psi_npz)['dtprop'] == dtprop):
             self.time = np.load(path_psi_npz)['time']
             self.psi_t = np.load(path_psi_npz)['psi_t']
-
         else:
             psi_t = []
             for t in self.time:
@@ -136,7 +138,34 @@ class Propagation(AnyonHubbardHamiltonian):
 
 
     #===========================================================================
-    # two-body density <n_i n_j>
+    # natural population
+    #===========================================================================
+    def get_natpop(self):
+        "<b_i^\dagger b_j>"
+
+        natpop = []
+        natorbs = []
+        for psi_tstep in self.psi_t:
+            bibj_mat = np.zeros((self.L, self.L), dtype=complex)
+            for i in range(self.L):
+                for j in range(self.L):
+                    bibj_mat[i, j] = operators.get_bibj_correlator(
+                        psi_tstep, self.basis.basis_list, i, j)
+
+            assert np.allclose(bibj_mat, np.conjugate(bibj_mat.T))
+            eval, evec = np.linalg.eigh(self.hamilt)
+            idx = eval.argsort()
+            evals = eval[idx]
+            evecs = (evec[:, idx]).T
+
+            natpop.append(evals)
+            natorbs.append(evecs)
+
+        return np.array(natpop), np.array(natorbs)
+
+
+    #===========================================================================
+    # two-site density <n_i n_j>
     #===========================================================================
     def num_op_ninj(self, site_i, site_j):
         "psi_t = <psi(t)| n_j n^i |psi(t)>"
@@ -197,6 +226,56 @@ class Propagation(AnyonHubbardHamiltonian):
         x, y = np.meshgrid(range(L), range(L))
         return ninj_mat
 
+
+
+    #===========================================================================
+    # momentum operator
+    #===========================================================================
+    def op_bibj(self, site_i, site_j):
+        "psi_t = <psi(t)| b_i^\dagger b^j |psi(t)>"
+        path_dict = self.path_prop/f'dict_bitbj_Tf_{self.Tprop}.npz'
+        obs_name = f'site_{site_i}_{site_j}'
+        if False:# path_dict.is_file():
+            obs_dict = dict(np.load(path_dict))
+            time = obs_dict['time']
+            if obs_name in obs_dict.keys():
+                return time, obs_dict[obs_name]
+        else:
+            obs_dict = {}
+
+        obs_list = []
+        for psi_tstep in self.psi_t:
+            obs_list.append(operators.get_bibj_correlator(
+                psi_tstep, self.basis.basis_list, site_i, site_j))
+
+        obs = np.array(obs_list)
+
+        obs_dict[obs_name] = obs
+        obs_dict[f'time'] = self.time
+        np.savez(path_dict, **obs_dict)
+        return self.time, obs
+
+
+    def get_k_momentum(self, k_mom):
+        momentum = 0
+        # for m in range(1, self.L+1):
+        #     for n in range(1, self.L+1):
+        for m in range(0, self.L):
+            for n in range(0, self.L):
+                corr_mn = self.op_bibj(m-1, n-1)[1]
+                momentum += np.exp(1j*k_mom*(m - n))*corr_mn
+        momentum = np.array(momentum)/self.L
+
+        if 1e-8 < np.max(momentum.imag):
+            raise ValueError('momentum has an imaginary part > 1e-8! --raise')
+
+        return momentum.real
+
+
+    def momentum_distribution(self):
+        k_range = np.linspace(-np.pi*1, np.pi*1, 100)
+        mom_mat = np.array([self.get_k_momentum(k) for k in k_range])
+        return k_range, mom_mat
 
 
     #===========================================================================
@@ -315,41 +394,62 @@ class Propagation(AnyonHubbardHamiltonian):
             subprocess.call(['convert', path_fig, '-trim', path_fig])
 
 
-    def plot_nstate_proj(self, nstate):
+    #===========================================================================
+    # number state projection
+    #===========================================================================
+    def nstate_projection(self):
         """Get number state list: [2, 0, 0, 2]
         Get the overlap with psi_prop, i.e. return the time-dependent
         coefficient corresponding to this state"""
-        nstate_str = ''.join(map(str, nstate))
-        assert len(nstate) == self.L
-        psi0_ind = [i for i, el in enumerate(self.basis.basis_list)
-            if el == nstate]
-        proj_t = np.abs(self.psi_t[:, psi0_ind])**2
+
+        nstate_mat = np.abs(self.psi_t)**2
+
+        count_nstate = len([el for el in nstate_mat.T if np.max(np.abs(el))>1e-10])
+        print('number of number states which are nonzero', count_nstate)
+
+        return nstate_mat
+
+
+    def nstate_SVN(self):
+        nstate_mat = self.nstate_projection()
+        svn = []
+        for i in range(nstate_mat.shape[0]):
+            svn.append(sum([-el*np.log(el) for el in nstate_mat[i, :]
+                if el > 0]))
+        svn = np.array(svn)
+
+        svn_max = np.log(nstate_mat.shape[1])
+
+        return svn, svn_max
+
+
+    #===========================================================================
+    # projection on eigenstates
+    #===========================================================================
+    def eigenstate_projection(self):
+        "Project on eigenstates of the Hamiltonian"
 
         #-----------------------------------------------------------------------
-        # save in dict
-        path_nstate_dict = self.path_prop/'dict_nstate.npz'
-        if path_nstate_dict.is_file():
-            nstate_dict = dict(np.load(path_nstate_dict))
-        else:
-            nstate_dict = {}
-        nstate_dict[nstate_str] = proj_t
-        nstate_dict[f'time'] = self.time
-        np.savez(path_nstate_dict, **nstate_dict)
+        eig_proj = []
+        for t, psi_tstep in zip(self.time, self.psi_t):
 
-        #-----------------------------------------------------------------------
-        # plot
-        fig_name = f'proj_{nstate_str}.png'
-        fig, ax = plt.subplots()
-        plt.plot(self.time, proj_t)
-        ax.tick_params(labelsize=12)
-        ax.set_xlabel('time', fontsize=14)
-        ax.set_ylabel(r"$\langle \vec{n}| \Psi\rangle$", fontsize=14)
-        ax.set_title(f'nstate: {nstate_str}')
-        path_fig = (self.path_prop/fig_name).resolve()
-        plt.savefig(path_fig)
-        plt.close()
-        if self.bool_convert_trim:
-            subprocess.call(['convert', path_fig, '-trim', path_fig])
+            eig_proj_t = []
+            energy = 0
+            for eval, evec in zip(self.evals, self.evecs):
+                expV = np.abs(np.vdot(evec, psi_tstep))**2
+                eig_proj_t.append(expV)
+                energy += expV*eval
+            eig_proj.append(eig_proj_t)
+            # H_exp = np.vdot(psi_tstep, self.hamilt.dot(psi_tstep))
+            # ana_list.append(np.cos(2*t)*np.sin(2*t))
+            # assert np.abs(H_exp.imag) < 1e-10
+            # H_exp = H_exp.real
+            # print(energy, np.abs(energy - H_exp))
+            # energy_list.append(H_exp)
+        eig_proj = np.array(eig_proj)
+
+        return eig_proj
+
 
 
     #===========================================================================
@@ -367,25 +467,81 @@ class Propagation(AnyonHubbardHamiltonian):
         else:
             obs_dict = {}
 
-        basis_list = self.basis.basis_list
+        K_mat, K_evals, K_evecs = self.get_K_mat()
+        KHK = (K_mat.T)@(np.conjugate(self.hamilt@K_mat))
+        print('K^T H K = H :', np.allclose(KHK, self.hamilt))
 
-        K_mat, _, _ = self.get_K_mat()
+        K_exp_list = []
+        eig_proj = []
+        for t, psi_tstep in zip(self.time, self.psi_t):
 
-        # assert np.allclose(K_mat, np.conjugate(K_mat).T)
+            eig_proj_t = []
+            energy = 0
+            for eval, evec in zip(K_evals, K_evecs):
+                expV = np.abs(np.vdot(evec, psi_tstep))**2
+                eig_proj_t.append(expV)
+                energy += expV*eval
+            eig_proj.append(eig_proj_t)
+        eig_proj = np.array(eig_proj)
 
-        obs_list = []
-        ana_list = []
+            # K_expV = np.vdot(psi_tstep, K_mat.dot(np.conjugate(psi_tstep)))
+            # assert np.abs(K_expV.imag) < 1e-10
+            # H_exp = H_exp.real
+            # print(energy, np.abs(energy - K_expV))
+            # K_exp_list.append(K_expV)
+
+        # K_exp = np.array(K_exp_list)
+        # K_exp_angle = np.array([np.pi if np.abs(np.abs(el) - np.pi) < 1e-8
+        #     else el for el in np.angle(K_expV)])
+
+
+        # eigstate_mat = self.eigenstate_projection()
+        # n_pop_eig = len([el for el in eigstate_mat[0] if el > 1e-10])
+        # svn_predict = np.log(n_pop_eig)
+        # print(n_pop_eig, svn_predict)
+
+        n_pop_eig0 = len([el for el in eig_proj[0] if el > 1e-10])
+        n_pop_eig = len([el for el in eig_proj.T if np.max(np.abs(el)) > 1e-10])
+        print(n_pop_eig0)
+        print(n_pop_eig)
+        print(np.log(n_pop_eig))
+        print(np.log(n_pop_eig))
+
+
+
+        x, y = np.meshgrid(range(eig_proj.shape[1]), self.time)
+        import matplotlib.colors as colors
+        im = plt.pcolormesh(x, y, eig_proj, shading='nearest', norm = colors.LogNorm(vmin=1e-3, vmax=1), cmap='Greys')
+        plt.colorbar(im)
+        plt.show()
+
+        # count = 0
+        # for K_evec in K_evecs:
+        #     ovlp_
+        #     if np.vdot(self.psi0, K_evec) > 1e-6:
+        #         count += 1
+
+        print('number of eigenstates of K which overlap with psi0', count)
+
+
+
+        K_exp_list = []
+        # ana_list = []
         for t, psi_tstep in zip(self.time, self.psi_t):
             expV = np.vdot(psi_tstep, K_mat.dot(np.conjugate(psi_tstep)))
-            obs_list.append(expV)
-            ana_list.append(np.cos(2*t)**2 - np.sin(2*t)**2)
-        obs = np.array(obs_list)
+            K_exp_list.append(expV)
+            # ana_list.append(np.cos(2*t)**2 - np.sin(2*t)**2)
+        K_exp = np.array(K_exp_list)
+        K_exp_angle = np.array([np.pi if np.abs(np.abs(el) - np.pi) < 1e-8
+            else el for el in np.angle(K_exp)])
 
-        print(obs)
-        print(np.max(np.abs(obs.imag)))
 
-        plt.plot(self.time, obs.real)
-        plt.plot(self.time, ana_list)
+        cmplx_angle_set, counts = self.K_eigvals_polar_coord()
+
+
+        plt.plot(self.time, np.abs(K_exp))
+        plt.hlines(cmplx_angle_set, xmin=0, xmax=50, color='gray')
+        plt.scatter(self.time, K_exp_angle)
         plt.show()
         exit()
 
@@ -396,3 +552,61 @@ class Propagation(AnyonHubbardHamiltonian):
         obs_dict[f'time'] = self.time
         np.savez(path_dict, **obs_dict)
         return self.time, obs
+
+
+    #---------------------------------------------------------------------------
+    def K_operator_K_dagger(self):
+        """\mathcal{K} + \mathcal{K}^\dagger
+        """
+
+
+        K_mat, K_evals, K_evecs = self.get_K_mat()
+        Kt_mat, Kt_evals, Kt_evecs = self.get_K_dagger_mat()
+
+
+        K_exp_list = []
+        for t, psi_tstep in zip(self.time, self.psi_t):
+
+            expV_a = np.vdot(psi_tstep, K_mat.dot(np.conjugate(psi_tstep)))
+            expV_b = np.dot(psi_tstep, Kt_mat.dot(psi_tstep))
+
+            K_exp_list.append(expV_a + expV_b)
+
+
+        K_exp = np.array(K_exp_list)
+        if np.max(np.abs(K_exp.imag)) < 1e-8:
+            K_exp = K_exp.real
+        else:
+            raise ValueError
+
+        return K_exp
+
+    #---------------------------------------------------------------------------
+    def pair_operator(self):
+
+        pair_mat, pair_evals, pair_evecs = self.get_pair_mat()
+
+        pair_exp_list = []
+        # eig_proj = []
+        for t, psi_tstep in zip(self.time, self.psi_t):
+
+            expV = np.vdot(psi_tstep, pair_mat.dot(psi_tstep))
+            pair_exp_list.append(expV)
+
+            # eig_proj_t = []
+            # for eval, evec in zip(pair_evals, pair_evecs):
+            #     proj = np.abs(np.vdot(evec, psi_tstep))**2
+            #     eig_proj_t.append(proj)
+            # eig_proj.append(eig_proj_t)
+
+        # eig_proj = np.array(eig_proj)
+        # print(len([el for el in eig_proj[0] if el > 1e-10]))
+        # print(len([el for el in eig_proj[-1] if el > 1e-10]))
+        pair_exp = np.array(pair_exp_list)
+
+        if np.max(np.abs(pair_exp.imag)) < 1e-8:
+            pair_exp = pair_exp.real
+        else:
+            raise ValueError
+
+        return pair_exp

@@ -3,7 +3,7 @@ import math
 import numpy as np
 
 
-def get_psi0(basis_list, psi0_str):
+def get_psi0(psi0_str, basis_list, eigstates):
     """Create from input string an array corresponding to the intitial state.
 
     Args:
@@ -21,7 +21,7 @@ def get_psi0(basis_list, psi0_str):
 
     if psi0_str == 'psi0_n00n':
         # define initial state: |N/2, 0, ..., 0, N/2>
-        assert L%2==0  # even number of lattice sites
+        assert N%2==0  # even number of atoms
         nstate_ini = [0]*L
         nstate_ini[0] = N/2
         nstate_ini[-1] = N/2
@@ -32,18 +32,22 @@ def get_psi0(basis_list, psi0_str):
         psi0[psi0_ind[0]] = 1
         nstate0_str = str(basis_list[psi0_ind[0]])
 
-    elif psi0_str == 'psi0_3100':
-        assert N == 4 and L == 4
-        nstate_ini = [0]*L
-        nstate_ini[0] = 3
-        nstate_ini[1] = 1
-
+    elif 'psi0_nstate' in psi0_str:
+        nstate0_str = psi0_str.split('_')[-1]
+        nstate_ini = [eval(el) for el in nstate0_str.split('-')]
         psi0_ind = [i for i, el in enumerate(basis_list) if el == nstate_ini]
         assert len(psi0_ind) == 1
 
         psi0 = np.zeros((basis_length), dtype=complex)
         psi0[psi0_ind[0]] = 1
         nstate0_str = str(basis_list[psi0_ind[0]])
+
+
+    elif 'eigstate' in psi0_str:
+        eig_ind = eval(psi0_str.split('_')[1])
+        psi0 = eigstates[eig_ind]
+        nstate0_str = str(psi0_str)
+
 
     else:
         raise NotImplementedError

@@ -139,3 +139,69 @@ def K_operator(L, theta, basis1, basis2):
 
     else:
         return 0
+
+
+def K_dagger_operator(L, theta, basis1, basis2):
+    """ symmetry operator
+        PRL 118, 120401 (2017)
+        https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.118.120401
+        Eq. (12)
+
+        K = exp(i\theta sum_{j=1}^L n_j(n_j-1)/2) * I * T
+
+        I : inversion operator: |1, 2, 3, 4>  -->  |4, 3, 2, 1>
+        T : time-reversal op: np.conjugate(|1, 2, 3, 4>)
+
+        Apply time-reversal operator separately!
+    """
+
+    b1 = basis1[::]
+    b2 = basis2[::]
+
+
+    # inversion
+    b1 = b1[::-1]
+
+    if np.allclose(b1, b2):
+        sum_njnj = sum([b2[j]*(b2[j] - 1) for j in range(L)])
+        exp_term = np.exp(-1j*theta*sum_njnj/2)
+        return exp_term
+
+    else:
+        return 0
+
+
+
+
+#-----------------------------------------------------------------------
+def pair_operator(L, basis1, basis2):
+    """ \nu_p = \sum_j \hat{n}_j (\hat{n}_j - 1)/2  """
+
+    if np.allclose(basis1, basis2):
+        sum_njnj = sum([basis1[j]*(basis1[j] - 1)/2 for j in range(L)])
+        return sum_njnj
+
+    else:
+        return 0
+
+#===============================================================================
+# momentum operator
+#===============================================================================
+def get_bibj_correlator(psi, basis_list, i, j):
+    r"""\langle b_i^\dagger b_j \rangle
+        = <psi | b_i^\dagger b_j | psi >
+        = (<4,0,0,0|c_1 + <3,1,0,0|c_2 + ... ) | b_i^\dagger b_j | psi >
+        """
+    N = sum(basis_list[0])
+    bibj_op = 0
+    for ind_1, basis1 in enumerate(basis_list):
+        for ind_2, basis2 in enumerate(basis_list):
+            # apply bi^dagger b_j
+            coeff_bibj = bi_dagger_bj(basis1, basis2, i, j, N)
+
+            if coeff_bibj == 0:
+                continue
+            else:
+                bibj_op += coeff_bibj*np.conjugate(psi[ind_1])*psi[ind_2]
+
+    return bibj_op

@@ -25,7 +25,11 @@ def bool_convert_trim():
 
 
 def make_title(L, N, U, theta, psi0=None):
-    title = f'$L={L}, N={N}, U={U}, ' + r'\theta ' + f'={theta/math.pi:.3f}\pi$'
+    title = f'$L={L}, N={N}'
+    if U is not None:
+        title += f', U={U}'
+    if theta is not None:
+        title += r', \theta ' + f'={theta/math.pi:.3f}\pi$'
     if psi0 is not None:
         return title + f', {psi0}'
     else:
@@ -68,6 +72,8 @@ def plot_lines(fig_name, x_lists, y_lists, label_list=None, fig_args=None):
             ax.set_yscale('log')
         if 'hline' in fig_args.keys():
             ax.axhline(fig_args['hline'], ls='--', c='gray')
+        if 'hline2' in fig_args.keys():
+            ax.axhline(fig_args['hline2'], ls='--', c='tomato')
         if 'filter' in fig_args.keys():
             filter = fig_args['filter']
 
@@ -111,9 +117,11 @@ def plot_lines(fig_name, x_lists, y_lists, label_list=None, fig_args=None):
 
 
 #===============================================================================
-def plot_histogram(fig_name, x_vals, y_vals, fig_args=None):
+def plot_scatter(fig_name, x_list, y_lists, fig_args=None):
     fig_name.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots()
+
+    legend_list = []
     if fig_args is not None:
         if 'xlabel' in fig_args.keys():
             ax.set_xlabel(fig_args['xlabel'])
@@ -121,12 +129,42 @@ def plot_histogram(fig_name, x_vals, y_vals, fig_args=None):
             ax.set_ylabel(fig_args['ylabel'])
         if 'title' in fig_args.keys():
             ax.set_title(fig_args['title'])
+        if 'hline' in fig_args.keys():
+            ax.axhline(fig_args['hline'], ls='--', c='gray')
+        if 'xticklabels' in fig_args.keys():
+            ax.set_xticks(x_list)
+            ax.set_xticklabels(fig_args['xticklabels'], rotation=50, ha='right',
+                               fontsize=8, rotation_mode='anchor')
+        if 'legend_list' in fig_args.keys():
+            legend_list = fig_args['legend_list']
+
+    assert len(y_lists) <= 10
+    color_list = ['tomato', 'cornflowerblue', 'forestgreen', 'gold', 'orange',
+                  'rebeccapurple', 'slategrey', 'mediumblue', 'torquoise',
+                  'maroon']
+    ms_list = ['o', 'v', 'X', 's', 'D', 'P', 'h', '<', '*']
+
+    for i, y_list in enumerate(y_lists):
+
+        if legend_list is None:
+            ax.scatter(x_list, y_list, c=color_list[i], marker=ms_list[i])
+        else:
+            ax.scatter(x_list, y_list, c=color_list[i], marker=ms_list[i],
+                label=legend_list[i])
+
+    if legend_list is None:
+        pass
+    else:
+        # Shrink current axis by 20%
+        # box = ax.get_position()
+        # ax.set_position([box.x0, box.y0, box.width * 0.85, box.height])
+        # Put a legend to the right of the current axis
+        ax.legend(loc='center', bbox_to_anchor=(0.5, 1.1),
+                  ncol=len(legend_list), borderpad=0.2, handlelength=0.5,
+                  handletextpad=0.6, labelspacing=0.2)
 
 
-    # ax.hist(x=counts, bins=bins, histtype='bar', density=True)
-    ax.set_xticks(x_vals)
-    ax.scatter(x_vals, y_vals)
-
+    fig.tight_layout()
     plt.savefig(fig_name)
     plt.close()
     gc.collect()
@@ -191,7 +229,7 @@ def make_cplot(fig_name, xarr, yarr, mat, fig_args=None):
     fig_name.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots()
 
-    cmap = 'turbo'  # defualt
+    cmap = 'tab20'  # defualt
     shading = 'nearest'
     norm = None     # defualt
     if fig_args is not None:
@@ -205,12 +243,20 @@ def make_cplot(fig_name, xarr, yarr, mat, fig_args=None):
             norm = MidpointNormalize(vmin=np.min(mat), vmax=np.max(mat),
                 midpoint=0)
             cmap = 'seismic'
+        if 'cmap' in fig_args.keys():
+            cmap = fig_args['cmap']
         if 'shading' in fig_args.keys():
             shading = fig_args['shading']
+        if 'lognorm' in fig_args.keys():
+            norm = colors.LogNorm(vmin=1e-3, vmax=1)
 
     x, y = np.meshgrid(xarr, yarr)
     im = ax.pcolormesh(x, y, mat, cmap=cmap, norm=norm, shading=shading)
-    cb = plt.colorbar(im)
+    cbar = plt.colorbar(im)
+
+    if fig_args is not None:
+        if 'clabel' in fig_args.keys():
+            cbar.ax.set_ylabel(fig_args['clabel'], fontsize=10)
 
     plt.savefig(fig_name)
     plt.close(fig)
