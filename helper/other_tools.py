@@ -1,27 +1,12 @@
 import math
+import numpy as np
 
-
-def get_path_basis(path_data_top, L, N, U, theta):
-    """Create path of data from input pars. J is assumed to be always 1
-
-    Args:
-        path_data_top (Path): top path of data folder
-        L (int): number of lattice sites
-        N (int): number of atoms
-        U (float): on-site interaction
-        theta (float): statistical angle
-
-    Returns:
-        path_basis (Path): path where solved hamilt spectrum is stored
-    """
-
-    theta_ = f'{theta/math.pi:.3f}'.replace('.', '_')
-    U_ = f'{U:.3f}'.replace('.', '_')
-    path_basis = path_data_top/f'L{L}_N{N}/U_{U_}_thpi_{theta_}'
-    path_basis.mkdir(parents=True, exist_ok=True)
-
-    return path_basis
-
+def time_str(sec):
+    hour = sec // 3600
+    sec %= 3600
+    min = sec // 60
+    sec %= 60
+    return f'{int(hour)}h:{int(min)}m:{sec:.2f}s'
 
 
 def add_to_set(input_set, input_val, threshold):
@@ -62,7 +47,7 @@ def find_degeneracies(eval_in):
 
     for i, energy in enumerate(eval_in):
 
-        bool_add = add_to_set(energy_set, energy, 1e-8)
+        bool_add = add_to_set(energy_set, energy, 1e-10)
 
         if bool_add:
             dict_energies[energy_prev] = state_ind_list
@@ -99,3 +84,16 @@ def find_degeneracies(eval_in):
 #     path_prop.mkdir(parents=True, exist_ok=True)
 #
 #     return path_prop
+
+
+def make_schmidt_decomp(bipartitepurestate_tensor):
+    """https://github.com/stephenhky/pyqentangle/blob/master/pyqentangle/
+    schmidt.py"""
+    state_dims = bipartitepurestate_tensor.shape
+    mindim = np.min(state_dims)
+    vecs1, diags, vecs2_h = np.linalg.svd(bipartitepurestate_tensor)
+    vecs2 = vecs2_h.transpose()
+    decomposition = [(diags[k], vecs1[:, k], vecs2[:, k])
+        for k in range(mindim)]
+    decomposition = sorted(decomposition, key=lambda dec: dec[0], reverse=True)
+    return decomposition

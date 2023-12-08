@@ -1,3 +1,5 @@
+import numpy as np
+
 
 class Basis():
     """return basis with all number states
@@ -20,5 +22,14 @@ class Basis():
                         yield [value,] + permutation
 
         self.basis_list = list(sums(L, N))
-        self.basis_list = self.basis_list[::-1]
-        self.length = len(self.basis_list)
+        self.basis_list = np.array(self.basis_list[::-1])
+        self.length = self.basis_list.shape[0]
+
+
+    def nstate_index(self, nstate_in):
+
+        for i, nstate in enumerate(self.basis_list):
+            if (nstate_in == nstate).all():
+                return i
+
+        raise ValueError(f'nstate: {nstate_in} not found in basis')

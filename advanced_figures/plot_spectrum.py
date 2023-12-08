@@ -9,8 +9,6 @@ import matplotlib.gridspec as gridspec
 
 
 from hamiltonian.solve_hamilt import AnyonHubbardHamiltonian
-import path_dirs
-from helper import other_tools
 
 
 def make_plot(L, N, U):
@@ -20,8 +18,15 @@ def make_plot(L, N, U):
 
 
     #---------------------------------------------------------------------------
+    bc_name = 'obc'  # 'pbc'
     U_ = f'{U:.1f}'.replace('.', '_')
-    fig_name = f'L{L}_N{N}_U_{U_}_energy_spectrum.pdf'
+    fig_name = f'energy_spectrum_{bc_name}_L{L}_N{N}_U_{U_}.pdf'
+
+
+    if bc_name == 'obc':
+        bc = 'open'
+    elif bc_name == 'pbc':
+        bc = 'periodic'
 
     #---------------------------------------------------------------------------
     # get data
@@ -34,11 +39,8 @@ def make_plot(L, N, U):
     for theta in theta_list:
         #---------------------------------------------------------------
         # solve hamilt
-        path_basis = other_tools.get_path_basis(
-            path_dirs.path_data_top, L, N, U, theta)
-
         hamilt_class = AnyonHubbardHamiltonian(
-            path_basis=path_basis,
+            bc=bc,
             L=L,
             N=N,
             J=1,
@@ -54,8 +56,8 @@ def make_plot(L, N, U):
         dict_degen = hamilt_class.energy_degeneracy()
         degeneracies_theta.append(dict_degen)
 
-        # for key, val in dict_degen.items():
-        #     print(key, val)
+        for key, val in dict_degen.items():
+            print(key, val)
 
 
     #===========================================================================
@@ -82,7 +84,7 @@ def make_plot(L, N, U):
     #===========================================================================
     for ax in [ax1, ax2, ax3, ax4, ax5]:
         # ax.set_xlim(0, N_nstates)
-        ax.set_ylim(-8, 8)
+        # ax.set_ylim(-8, 65)
         ax.set_xlabel('$i$')
     ax1.set_ylabel(r'$E_i$', fontsize=12)
 
@@ -110,12 +112,30 @@ def make_plot(L, N, U):
     ax5.scatter(x_data, eval_theta[4], s=s, fc='black', marker='o')
 
 
-    degen_colors = {
-        '2': 'tomato',
-        '4': 'cornflowerblue',
-        '5': 'forestgreen',
-        '10': 'gold',
-        }
+
+
+    if bc_name == 'obc':
+        degen_colors = {
+            '2': 'tomato',
+            '4': 'cornflowerblue',
+            '5': 'forestgreen',
+            '10': 'gold',
+            }
+    elif bc_name == 'pbc':
+        degen_colors = {
+            '2': 'tomato',
+            '3': 'khaki',
+            '4': 'teal',
+            '5': 'forestgreen',
+            '6': 'brown',
+            '8': 'orange',
+            '10': 'gold',
+            '14': 'steelblue',
+            '16': 'cyan',
+            '20': 'indigo',
+            '24': 'lightblue',
+            '34': 'lime',
+            }
     # highlight degenarcies
     degen_used_colors = []
     for i, ax in enumerate([ax1, ax2, ax3, ax4, ax5]):
@@ -127,20 +147,38 @@ def make_plot(L, N, U):
                 continue
 
             d = len(ind_list)
+            print('d=', d)
             for ind in ind_list:
                 degen_used_colors.append(d)
+                assert str(d) in degen_colors.keys()
                 ax.scatter(ind, eval(e_str), s=sd, color=degen_colors[str(d)])
 
 
 
     degen_used_colors = set(degen_used_colors)
-    if len(degen_used_colors) == 1:
+    print(len(degen_used_colors))
+    if len(degen_used_colors) == 1 and bc_name == 'obc':
         m2 = plt.scatter([], [], marker='o', color=degen_colors['2'], s=5)
         axl.legend([m2], [r'$\mathrm{degeneracy}=2$'],
             bbox_to_anchor=(0.5, 2.5), ncol=4, loc='center', fontsize=12,
             borderpad=0.2, handlelength=1.5, handletextpad=0.6, labelspacing=0.2,
             columnspacing=1, framealpha=0.5)
 
+    elif len(degen_used_colors) == 1 and bc_name == 'pbc':
+        m2 = plt.scatter([], [], marker='o', color=degen_colors['4'], s=5)
+        axl.legend([m2], [r'$\mathrm{degeneracy}=4$'],
+            bbox_to_anchor=(0.5, 2.5), ncol=4, loc='center', fontsize=12,
+            borderpad=0.2, handlelength=1.5, handletextpad=0.6, labelspacing=0.2,
+            columnspacing=1, framealpha=0.5)
+
+    elif len(degen_used_colors) == 3:
+        m2 = plt.scatter([], [], marker='o', color=degen_colors['2'], s=5)
+        m3 = plt.scatter([], [], marker='o', color=degen_colors['3'], s=5)
+        m4 = plt.scatter([], [], marker='o', color=degen_colors['4'], s=5)
+        axl.legend([m2, m3, m4], [r'$\mathrm{degeneracy}=2$', '$3$', '$4$'],
+            bbox_to_anchor=(0.5, 2.5), ncol=4, loc='center', fontsize=12,
+            borderpad=0.2, handlelength=1.5, handletextpad=0.6, labelspacing=0.2,
+            columnspacing=1, framealpha=0.5)
 
     elif len(degen_used_colors) == 4:
         m2 = plt.scatter([], [], marker='o', color=degen_colors['2'], s=5)
@@ -152,6 +190,41 @@ def make_plot(L, N, U):
             ], bbox_to_anchor=(0.5, 2.5), ncol=4, loc='center', fontsize=12,
             borderpad=0.2, handlelength=1.5, handletextpad=0.6, labelspacing=0.2,
             columnspacing=1, framealpha=0.5)
+
+    elif len(degen_used_colors) == 5:
+        m2 = plt.scatter([], [], marker='o', color=degen_colors['2'], s=5)
+        m3 = plt.scatter([], [], marker='o', color=degen_colors['3'], s=5)
+        m4 = plt.scatter([], [], marker='o', color=degen_colors['4'], s=5)
+        m6 = plt.scatter([], [], marker='o', color=degen_colors['6'], s=5)
+        m8 = plt.scatter([], [], marker='o', color=degen_colors['8'], s=5)
+        axl.legend([m2, m3, m4, m6, m8], [r'$\mathrm{degeneracy}=2$', r'$3$',
+            r'$4$', r'$6$', r'$8$'],
+            bbox_to_anchor=(0.5, 2.5), ncol=5, loc='center', fontsize=12,
+            borderpad=0.2, handlelength=1.5, handletextpad=0.6, labelspacing=0.2,
+            columnspacing=1, framealpha=0.5)
+
+
+    elif len(degen_used_colors) == 12:
+        m2 = plt.scatter([], [], marker='o', color=degen_colors['2'], s=5)
+        m3 = plt.scatter([], [], marker='o', color=degen_colors['3'], s=5)
+        m4 = plt.scatter([], [], marker='o', color=degen_colors['4'], s=5)
+        m5 = plt.scatter([], [], marker='o', color=degen_colors['5'], s=5)
+        m6 = plt.scatter([], [], marker='o', color=degen_colors['6'], s=5)
+        m8 = plt.scatter([], [], marker='o', color=degen_colors['8'], s=5)
+        m10 = plt.scatter([], [], marker='o', color=degen_colors['10'], s=5)
+        m14 = plt.scatter([], [], marker='o', color=degen_colors['14'], s=5)
+        m16 = plt.scatter([], [], marker='o', color=degen_colors['16'], s=5)
+        m20 = plt.scatter([], [], marker='o', color=degen_colors['20'], s=5)
+        m24 = plt.scatter([], [], marker='o', color=degen_colors['24'], s=5)
+        m34 = plt.scatter([], [], marker='o', color=degen_colors['34'], s=5)
+        axl.legend([m2, m3, m4, m5, m6, m8, m10, m14, m16, m20, m24, m34],
+            [r'$\mathrm{degeneracy}=2$', '$3$', '$4$', '$5$', '$6$', '$8$',
+            '$10$', '$14$', '$16$', '$20$', '$24$', '$34$'],
+            bbox_to_anchor=(0.5, 2.5), ncol=6, loc='center', fontsize=12,
+            borderpad=0.2, handlelength=1.5, handletextpad=0.6, labelspacing=0.2,
+            columnspacing=1, framealpha=0.5)
+
+
 
 
     #===========================================================================
